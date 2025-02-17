@@ -33,17 +33,17 @@
     - Github/Colab/Google Drive etc
 - Run **training/inference**
 
-### 🚧 WIP
-Dataset Preprocessing & Integration
+✅ Dataset Preprocessing & Integration (1 hour)
 - Ensure **multi-image support** in the interface.
+
+### 🚧 WIP
+Multi-Modal Processing (Video & Audio)
+- **Video → Extract key frames** as image inputs.
+- **Audio → Convert spectrograms** to images.
 
 ### 📌 TODO
 Multi-Host Training Support
 - Modify **training scripts** to enable **multi-node training**.
-
-Multi-Modal Processing (Video & Audio)
-- **Video → Extract key frames** as image inputs.
-- **Audio → Convert spectrograms** to images.
 
 Refactoring & Code Documentation
 - Add **developer documentation** (data flow, function docstrings).

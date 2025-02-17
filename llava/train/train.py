@@ -592,11 +592,22 @@ def preprocess_plain(
     # add end signal and concatenate together
     conversations = []
     for source in sources:
-        assert len(source) == 2
-        assert DEFAULT_IMAGE_TOKEN in source[0]['value']
-        source[0]['value'] = DEFAULT_IMAGE_TOKEN
-        conversation = source[0]['value'] + source[1]['value'] + conversation_lib.default_conversation.sep
+        # Ensure we have at least one human-assistant pair
+        if len(source) < 2:
+            continue
+
+        # Get the first human message (which contains image tokens)
+        human_msg = source[0]
+        assert DEFAULT_IMAGE_TOKEN in human_msg['value']
+        human_msg['value'] = DEFAULT_IMAGE_TOKEN
+
+        # Get the first assistant response
+        assistant_msg = source[1]
+
+        # Create conversation with just one human-assistant pair
+        conversation = human_msg['value'] + assistant_msg['value'] + conversation_lib.default_conversation.sep
         conversations.append(conversation)
+
     # tokenize conversations
     input_ids = [tokenizer_image_token(prompt, tokenizer, return_tensors='pt') for prompt in conversations]
     targets = copy.deepcopy(input_ids)
@@ -695,47 +706,58 @@ class LazySupervisedDataset(Dataset):
             sources = [sources]
         assert len(sources) == 1, "Don't know why it is wrapped to a list"  # FIXME
         if 'image' in sources[0]:
-            image_file = self.list_data_dict[i]['image']
-            image_folder = self.data_args.image_folder
-            processor = self.data_args.image_processor
-            image = Image.open(os.path.join(image_folder, image_file)).convert('RGB')
-            if self.data_args.image_aspect_ratio == 'pad':
-                def expand2square(pil_img, background_color):
-                    width, height = pil_img.size
-                    if width == height:
-                        return pil_img
-                    elif width > height:
-                        result = Image.new(pil_img.mode, (width, width), background_color)
-                        result.paste(pil_img, (0, (width - height) // 2))
-                        return result
-                    else:
-                        result = Image.new(pil_img.mode, (height, height), background_color)
-                        result.paste(pil_img, ((height - width) // 2, 0))
-                        return result
-                image = expand2square(image, tuple(int(x*255) for x in processor.image_mean))
-                image = processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
-            else:
-                image = processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
+            image_files = sources[0]['image']
+
+            # support multi-image
+            if isinstance(image_files, str):
+                image_files = [image_files]
+
+            # Process each image file
+            images = []
+            for image_file in image_files:
+                image = Image.open(os.path.join(self.data_args.image_folder, image_file)).convert('RGB')
+                if self.data_args.image_aspect_ratio == 'pad':
+                    def expand2square(pil_img, background_color):
+                        width, height = pil_img.size
+                        if width == height:
+                            return pil_img
+                        elif width > height:
+                            result = Image.new(pil_img.mode, (width, width), background_color)
+                            result.paste(pil_img, (0, (width - height) // 2))
+                            return result
+                        else:
+                            result = Image.new(pil_img.mode, (height, height), background_color)
+                            result.paste(pil_img, ((height - width) // 2, 0))
+                            return result
+                    image = expand2square(image, tuple(int(x*255) for x in self.data_args.image_processor.image_mean))
+                    image = self.data_args.image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
+                else:
+                    image = self.data_args.image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
+                images.append(image)
+
             sources = preprocess_multimodal(
                 copy.deepcopy([e["conversations"] for e in sources]),
                 self.data_args)
         else:
             sources = copy.deepcopy([e["conversations"] for e in sources])
+
         data_dict = preprocess(
             sources,
             self.tokenizer,
             has_image=('image' in self.list_data_dict[i]))
+
         if isinstance(i, int):
             data_dict = dict(input_ids=data_dict["input_ids"][0],
                              labels=data_dict["labels"][0])
 
-        # image exist in the data
-        if 'image' in self.list_data_dict[i]:
-            data_dict['image'] = image
+        # Add images to data_dict
+        if images:
+            data_dict['image'] = torch.stack(images) if len(images) > 1 else images[0]
         elif self.data_args.is_multimodal:
-            # image does not exist in the data, but the model is multimodal
+            # Image does not exist in the data, but the model is multimodal
             crop_size = self.data_args.image_processor.crop_size
             data_dict['image'] = torch.zeros(3, crop_size['height'], crop_size['width'])
+
         return data_dict
 
 
@@ -912,7 +934,7 @@ def train(attn_implementation=None):
             model_args=model_args,
             fsdp=training_args.fsdp
         )
-        
+
         vision_tower = model.get_vision_tower()
         vision_tower.to(dtype=torch.bfloat16 if training_args.bf16 else torch.float16, device=training_args.device)
 

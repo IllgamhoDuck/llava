@@ -5,7 +5,7 @@ deepspeed llava/train/train_xformers.py \
     --model_name_or_path lmsys/vicuna-7b-v1.5 \
     --version plain \
     --data_path ./playground/data/multi_image_sample_100.json \
-    --image_folder ./playground/data/LLaVA-Pretrain/images \
+    --image_folder ./playground/data \
     --vision_tower openai/clip-vit-large-patch14-336 \
     --mm_projector_type mlp2x_gelu \
     --tune_mm_mlp_adapter True \
@@ -13,7 +13,7 @@ deepspeed llava/train/train_xformers.py \
     --mm_use_im_start_end False \
     --mm_use_im_patch_token False \
     --bf16 True \
-    --output_dir ./checkpoints/llava-v1.5-7b-pretrain \
+    --output_dir ./checkpoints/llava-v1.5-7b-pretrain-multi-image \
     --num_train_epochs 1 \
     --per_device_train_batch_size 2 \
     --per_device_eval_batch_size 1 \
