@@ -99,6 +99,11 @@ Refactoring & Code Documentation
         - **Video → Extract key frames** as images.
         - **Audio → Convert to spectrogram images**.
     - 🚧 The **interface does not support** different modalities yet.
+6. **Is the data processing efficient?**
+    - 🚧 **Empty image handling and large image processing** need optimization.
+    - 🚧 **Sequential image feature processing** could be improved with parallel/distributed approaches.
+    - 🚧 **Multi-modal inputs** (video/audio) require special handling to avoid feature size explosion and modality mismatch.
+
 
 #### ✅ Action
 
