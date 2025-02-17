@@ -51,8 +51,7 @@ else
 fi
 echo "🔄 Upgrading to the latest code base..."
 git pull
-chmod +x "$DRIVE_REPO_DIR/.git/hooks/pre-push"
-chmod +x "$DRIVE_REPO_DIR/.git/hooks/pre-commit"
+chmod +x "$DRIVE_REPO_DIR/.git/hooks"
 
 # 4️⃣ **LLaVA 패키지 설치 (requirements.txt)**
 echo "📦 Installing LLaVA dependencies..."
@@ -69,6 +68,7 @@ pip install xformers --cache-dir "$CACHE_DIR"
 pip install -U transformers==4.37.2 --cache-dir "$CACHE_DIR"
 pip install -U peft==0.7.1 --cache-dir "$CACHE_DIR"
 pip install deepspeed==0.14.4 --cache-dir "$CACHE_DIR"
+pip install ipdb --cache-dir "$CACHE_DIR"
 
 
 # 5️⃣ **Oh My Bash 설치**
