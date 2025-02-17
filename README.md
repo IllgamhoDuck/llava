@@ -33,13 +33,17 @@
     - Github/Colab/Google Drive etc
 - Run **training/inference**
 
-✅ Dataset Preprocessing & Integration (1 hour)
+✅ Multi-Image Support (1 hour)
 - Ensure **multi-image support** in the interface.
 
-### 🚧 WIP
-Multi-Modal Processing (Video & Audio)
+✅ Multi-Modal Processing (Video & Audio) (1 hour)
 - **Video → Extract key frames** as image inputs.
 - **Audio → Convert spectrograms** to images.
+    - Currently all data is processed through the `image` attribute as a temporary solution
+    - Future updates will include proper modality-specific handling and feature extraction
+
+### 🚧 WIP
+Fix Multi-Modal (Video/Audio) invalid processing in dataloader
 
 ### 📌 TODO
 Multi-Host Training Support

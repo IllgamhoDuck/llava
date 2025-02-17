@@ -666,6 +666,88 @@ def preprocess(
     return dict(input_ids=input_ids, labels=targets)
 
 
+from PIL import Image
+import cv2
+import numpy as np
+import tempfile
+from moviepy.editor import VideoFileClip
+import scipy.signal
+
+def load_video_frames(video_path, max_frames=16):
+    """Load frames from video file and convert to image tensor."""
+    try:
+        # Open video file
+        cap = cv2.VideoCapture(video_path)
+
+        # Get video properties
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+
+        # Calculate frame sampling rate to get max_frames evenly spaced frames
+        frame_indices = np.linspace(0, total_frames-1, max_frames, dtype=int)
+
+        frames = []
+        for frame_idx in frame_indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+            ret, frame = cap.read()
+            if ret:
+                # Convert BGR to RGB
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                # Convert to PIL Image
+                frame = Image.fromarray(frame)
+                frames.append(frame)
+
+        cap.release()
+        return frames
+    except Exception as e:
+        print(f"Error loading video: {e}")
+        return None
+
+def extract_audio_spectrogram(video_path):
+    try:
+        # Load audio from video
+        video = VideoFileClip(video_path)
+        if video.audio is None:
+            return None
+
+        # Extract audio data
+        audio = video.audio
+        audio_array = audio.to_soundarray()
+
+        # Convert to mono if stereo
+        if len(audio_array.shape) > 1:
+            audio_array = audio_array.mean(axis=1)
+
+        # Create spectrogram
+        sample_rate = audio.fps
+        frequencies, times, spectrogram = scipy.signal.spectrogram(
+            audio_array,
+            fs=sample_rate,
+            nperseg=256,
+            noverlap=128
+        )
+
+        # Convert to dB scale and normalize
+        spectrogram = 10 * np.log10(spectrogram + 1e-10)
+        spectrogram = (spectrogram - spectrogram.min()) / (spectrogram.max() - spectrogram.min())
+
+        # Convert to RGB image
+        spectrogram_rgb = np.stack([spectrogram] * 3, axis=-1)
+        spectrogram_rgb = (spectrogram_rgb * 255).astype(np.uint8)
+
+        # Convert to PIL Image
+        image = Image.fromarray(spectrogram_rgb)
+
+        # Clean up
+        video.close()
+
+        return image
+
+    except Exception as e:
+        print(f"Error extracting audio: {str(e)}")
+        return None
+
+
 class LazySupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
 
@@ -704,36 +786,61 @@ class LazySupervisedDataset(Dataset):
         sources = self.list_data_dict[i]
         if isinstance(i, int):
             sources = [sources]
-        assert len(sources) == 1, "Don't know why it is wrapped to a list"  # FIXME
+        assert len(sources) == 1, "Don't know why it is wrapped to a list"
+
         if 'image' in sources[0]:
             image_files = sources[0]['image']
 
-            # support multi-image
+            # Support multi-image/video
             if isinstance(image_files, str):
                 image_files = [image_files]
 
-            # Process each image file
+            # Process each image/video file
             images = []
             for image_file in image_files:
-                image = Image.open(os.path.join(self.data_args.image_folder, image_file)).convert('RGB')
-                if self.data_args.image_aspect_ratio == 'pad':
-                    def expand2square(pil_img, background_color):
-                        width, height = pil_img.size
-                        if width == height:
-                            return pil_img
-                        elif width > height:
-                            result = Image.new(pil_img.mode, (width, width), background_color)
-                            result.paste(pil_img, (0, (width - height) // 2))
-                            return result
-                        else:
-                            result = Image.new(pil_img.mode, (height, height), background_color)
-                            result.paste(pil_img, ((height - width) // 2, 0))
-                            return result
-                    image = expand2square(image, tuple(int(x*255) for x in self.data_args.image_processor.image_mean))
+                file_path = os.path.join(self.data_args.image_folder, image_file)
+
+                # video
+                if image_file.lower().endswith(('.mp4')):
+                    # Load video frames
+                    video_frames = load_video_frames(file_path)
+                    if video_frames:
+                        # Process each frame
+                        processed_frames = []
+                        for frame in video_frames:
+                            if self.data_args.image_aspect_ratio == 'pad':
+                                frame = expand2square(frame, tuple(int(x*255) for x in self.data_args.image_processor.image_mean))
+                            processed = self.data_args.image_processor.preprocess(frame, return_tensors='pt')['pixel_values'][0]
+                            processed_frames.append(processed)
+
+                        # Stack frames
+                        video_tensor = torch.stack(processed_frames)
+                        images.append(video_tensor)
+
+                        # Process audio optionally (secondary, continue if fails)
+                        try:
+                            audio_spec = extract_audio_spectrogram(file_path)
+                            if audio_spec is not None:
+                                audio_tensor = self.data_args.image_processor.preprocess(audio_spec, return_tensors='pt')['pixel_values'][0]
+                                images.append(audio_tensor)
+                        except:
+                            pass
+
+                # audio
+                elif image_file.lower().endswith(('.wav', '.mp3', '.m4a')):
+                    audio_spec = extract_audio_spectrogram(file_path)
+                    if audio_spec:
+                        audio_tensor = self.data_args.image_processor.preprocess(audio_spec, return_tensors='pt')['pixel_values'][0]
+                        images.append(audio_tensor)
+
+                # image
+                elif image_file.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                    # Handle regular images as before
+                    image = Image.open(file_path).convert('RGB')
+                    if self.data_args.image_aspect_ratio == 'pad':
+                        image = expand2square(image, tuple(int(x*255) for x in self.data_args.image_processor.image_mean))
                     image = self.data_args.image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
-                else:
-                    image = self.data_args.image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
-                images.append(image)
+                    images.append(image)
 
             sources = preprocess_multimodal(
                 copy.deepcopy([e["conversations"] for e in sources]),
@@ -748,7 +855,7 @@ class LazySupervisedDataset(Dataset):
 
         if isinstance(i, int):
             data_dict = dict(input_ids=data_dict["input_ids"][0],
-                             labels=data_dict["labels"][0])
+                           labels=data_dict["labels"][0])
 
         # Add images to data_dict
         if images:
